@@ -100,6 +100,7 @@ endfunction()
 #  - aarch64: AARCH64
 #  - riscv64: RISCV64
 #  - riscv32: RISCV32
+#  - loongarch64: loongarch64
 #
 # Calling this function will result in forced updates to the cache.
 function(correct_platform_strings)
@@ -133,6 +134,9 @@ function(correct_platform_strings)
     elseif(KernelRiscVSel4Arch)
         # this should not have been in use at all
         message(FATAL_ERROR "KernelRiscVSel4Arch is no longer supported, use PLATFROM")
+    elseif(KernelLoongarchSel4Arch)
+        # this should not have been in use at all
+        message(FATAL_ERROR "KernelLoongarchSel4Arch is no longer supported, use PLATFROM")
     endif()
 
     set(
@@ -164,7 +168,8 @@ function(correct_platform_strings)
         "-KernelSel4Arch"
         "pc99:x86_64,ia32"
     )
-
+    # "-KernelLoongarchPlatform"
+    # "loongson3A:3A5000"
     set(all_boards "")
     set(block_kernel_var "")
     set(kernel_var "")
@@ -261,6 +266,8 @@ function(correct_platform_strings)
         set(KernelSel4Arch "riscv64" CACHE STRING "" FORCE)
     elseif(RISCV32)
         set(KernelSel4Arch "riscv32" CACHE STRING "" FORCE)
+    elseif(Loongarch64)
+        set(KernelSel4Arch "loongarch64" CACHE STRING "" FORCE)
     else()
         set(_REWRITE OFF)
     endif()
