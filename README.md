@@ -4,6 +4,10 @@
      SPDX-License-Identifier: BSD-2-Clause
 -->
 
+# seL4\_tools-comments
+
+The comments of seL4_tools source code(mainly the elfloader) which we use to port seL4 to LA.
+
 # seL4\_tools
 
 Provides tools used to build seL4 projects.
