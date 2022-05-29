@@ -18,7 +18,9 @@ typedef uintptr_t vaddr_t;
 #define MASK(n)             (BIT(n) - 1)
 #define MIN(a, b)           (((a) < (b)) ? (a) : (b))
 #define IS_ALIGNED(n, b)    (!((n) & MASK(b)))
+/*CY 计算n表示地址的下一个空白页的起始地址，若n是空白页的起始地址，那么就取这个空白页 */
 #define ROUND_UP(n, b)      (((((n) - 1) >> (b)) + 1) << (b))
+/*CY 计算n表示地址的当前页的起始地址 */
 #define ROUND_DOWN(n, b) (((n) >> (b)) << (b))
 #define ALIGN(n)            __attribute__((__aligned__(n)))
 #if __has_attribute(externally_visible)

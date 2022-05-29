@@ -94,16 +94,20 @@ static int map_kernel_window(struct image_info *kernel_info)
         return -1;
     }
 
+    /*CY 获取elfloader起始虚拟地址所在一级页号 */
     index = GET_PT_INDEX((uintptr_t)_text, PT_LEVEL_1);
 
 #if __riscv_xlen == 32
     lpt = l1pt;
 #else
     lpt = l2pt_elf;
+    /*CY 创建一级页表的页表项，存二级页表的地址 */
     l1pt[index] = PTE_CREATE_NEXT((uintptr_t)l2pt_elf);
+    /*CY 获取elfloader起始虚拟地址所在二级页号 */
     index = GET_PT_INDEX((uintptr_t)_text, PT_LEVEL_2);
 #endif
 
+    /*CY 一一映射elfloader的二级页表的页表项，64位一共就用到了两级页表 */
     for (unsigned int page = 0; index < PTES_PER_PT; index++, page++) {
         lpt[index] = PTE_CREATE_LEAF((uintptr_t)_text +
                                      (page << PT_LEVEL_2_BITS));
@@ -117,14 +121,17 @@ static int map_kernel_window(struct image_info *kernel_info)
         return -1;
     }
 
+    /*CY 获取kernel的起始虚拟地址对应的一级页页号 */
     index = GET_PT_INDEX(kernel_info->virt_region_start, PT_LEVEL_1);
 
 #if __riscv_xlen == 64
     lpt = l2pt;
     l1pt[index] = PTE_CREATE_NEXT((uintptr_t)l2pt);
+    /*CY 获取kernel的起始虚拟地址对应的二级页页号 */
     index = GET_PT_INDEX(kernel_info->virt_region_start, PT_LEVEL_2);
 #endif
 
+    /*CY 一一映射kernel的二级页表的页表项*/
     for (unsigned int page = 0; index < PTES_PER_PT; index++, page++) {
         lpt[index] = PTE_CREATE_LEAF(kernel_info->phys_region_start +
                                      (page << PT_LEVEL_2_BITS));
@@ -182,7 +189,7 @@ static inline void enable_virtual_memory(void)
 {
     sfence_vma();
     asm volatile(
-        "csrw satp, %0\n"
+        "csrwr satp, %0\n"
         :
         : "r"(vm_mode | (uintptr_t)l1pt >> RISCV_PGSHIFT)
         :
@@ -235,10 +242,12 @@ static int run_elfloader(UNUSED int hart_id, void *bootloader_dtb)
     set_and_wait_for_ready(hart_id, 0);
 #endif
 
+    /*CY 开启虚拟页表映射模式，写satp */
     printf("Enabling MMU and paging\n");
     enable_virtual_memory();
 
     printf("Jumping to kernel-image entry point...\n\n");
+    /*CY virt_entry为elf的入口，在load_image时读取*/
     ((init_riscv_kernel_t)kernel_info.virt_entry)(user_info.phys_region_start,
                                                   user_info.phys_region_end,
                                                   user_info.phys_virt_offset,
@@ -287,13 +296,14 @@ void secondary_entry(int hart_id, int core_id)
 
 #endif
 
+/*CY 第一个核的入口，a0:hart_id，a1:dtb地址 */
 void main(int hart_id, void *bootloader_dtb)
 {
     /* Printing uses SBI, so there is no need to initialize any UART. */
     printf("ELF-loader started on (HART %d) (NODES %d)\n",
            hart_id, CONFIG_MAX_NUM_NODES);
 
-    printf("  paddr=[%p..%p]\n", _text, _end - 1);
+    printf("  paddr=[%p..%p]\n", _text, _end - 1);  /*CY _text和_end为lds中的变量，定义了整个elfloader的起点和终点，spike是[80200000..8067a037] */
 
     /* Run the actual ELF loader, this is not expected to return unless there
      * was an error.
@@ -302,7 +312,7 @@ void main(int hart_id, void *bootloader_dtb)
     if (0 != ret) {
         printf("ERROR: ELF-loader failed, code %d\n", ret);
         /* There is nothing we can do to recover. */
-        abort();
+        abort();  /*CY 里面就是打印一段话然后wfi */
         UNREACHABLE();
     }
 

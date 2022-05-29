@@ -395,15 +395,20 @@ int load_images(
     const char *elf_filename;
     int has_dtb_cpio = 0;
 
+    /*CY _archive_start和_archive_start_end定义在lds中，标记cpio archive的起始和终止地址 */
     void const *cpio = _archive_start;
     size_t cpio_len = _archive_start_end - _archive_start;
 
+    /*CY 先是在cpio archive中找kernel.elf，实际上只是获取kernel.elf的起始地址和终止地址 */
+
     /* Load kernel. */
     unsigned long cpio_file_size = 0;
+    /*CY cpio_get_file定义在util_libs/libcpio/src/cpio.c中，找到名字为“kernel.elf”的文件在cpio archive中的位置和大小 */
+    /*CY 返回指向kernel.elf的指针 */
     void const *kernel_elf_blob = cpio_get_file(cpio,
                                                 cpio_len,
                                                 "kernel.elf",
-                                                &cpio_file_size);
+                                                &cpio_file_size);  /*CY 这里就会存kernel.elf的大小 */
     if (kernel_elf_blob == NULL) {
         printf("ERROR: No kernel image present in archive\n");
         return -1;
@@ -414,6 +419,7 @@ int load_images(
                    "integer model mismatch");
     size_t kernel_elf_blob_size = (size_t)cpio_file_size;
 
+    /*CY 检查kernel.elf的合法性（是否为正确的elf文件格式） */
     ret = elf_checkFile(kernel_elf_blob);
     if (ret != 0) {
         printf("ERROR: Kernel image not a valid ELF file\n");
@@ -423,12 +429,15 @@ int load_images(
     /* Get physical memory bounds. Unlike most other functions, this returns 1
      * on success and anything else is an error.
      */
-    ret = elf_getMemoryBounds(kernel_elf_blob, 1, &kernel_phys_start,
+    /*CY 通过读elf文件的ProgramHeader，获取kernel.elf的物理start和end地址 */
+    ret = elf_getMemoryBounds(kernel_elf_blob, 1, &kernel_phys_start,  /*CY 参数1表示读的是物理地址，0就表示读的虚拟地址 */
                               &kernel_phys_end);
     if (1 != ret) {
         printf("ERROR: Could not get kernel memory bounds\n");
         return -1;
     }
+
+    /*CY 接下来开始找dtb */
 
     void const *dtb = NULL;
 
@@ -454,6 +463,7 @@ int load_images(
 
 #endif /* CONFIG_ELFLOADER_INCLUDE_DTB */
 
+    /*CY 如果cpio archive中没有dtb，使用bootloader的dtb */
     if (chosen_dtb && !dtb && bootloader_dtb) {
         /* Use the bootloader's DTB if we are not using the DTB in the CPIO
          * archive.
@@ -466,7 +476,7 @@ int load_images(
      */
     if (dtb) {
         /* keep it page aligned */
-        next_phys_addr = dtb_phys_start = ROUND_UP(kernel_phys_end, PAGE_BITS);
+        next_phys_addr = dtb_phys_start = ROUND_UP(kernel_phys_end, PAGE_BITS);  /*CY ROUND_UP的作用：找到kernel_phys_end所在页的下一页的起始地址 */
 
         size_t dtb_size = fdt_size(dtb);
         if (0 == dtb_size) {
@@ -474,6 +484,7 @@ int load_images(
             return -1;
         }
 
+        /*CY 确保dtb的地址范围合法 */
         /* Make sure this is a sane thing to do */
         ret = ensure_phys_range_valid(next_phys_addr,
                                       next_phys_addr + dtb_size);
@@ -482,19 +493,22 @@ int load_images(
             return -1;
         }
 
+        /*CY 把dtb搬到新的位置 */
         memmove((void *)next_phys_addr, dtb, dtb_size);
         next_phys_addr += dtb_size;
         next_phys_addr = ROUND_UP(next_phys_addr, PAGE_BITS);
         dtb_phys_end = next_phys_addr;
 
-        printf("Loaded DTB from %p.\n", dtb);
-        printf("   paddr=[%p..%p]\n", dtb_phys_start, dtb_phys_end - 1);
+        printf("Loaded DTB from %p.\n", dtb);  /*CY spike：802d9b08 */
+        printf("   paddr=[%p..%p]\n", dtb_phys_start, dtb_phys_end - 1);  /*CY spike [84021000...84021fff] */
         *chosen_dtb = (void *)dtb_phys_start;
         *chosen_dtb_size = dtb_size;
     } else {
+        /* cpio archive没有dtb的话使用bootloader提供的dtb，其位置也不需要移动了 */
         next_phys_addr = ROUND_UP(kernel_phys_end, PAGE_BITS);
     }
 
+    /*CY 这里开始真正装载kernel */
     /* Load the kernel */
     ret = load_elf(cpio,
                    cpio_len,
@@ -521,12 +535,14 @@ int load_images(
      * (n)'th CPU.
      */
     unsigned int user_elf_offset = 2;
+    /*CY 判断kernel.elf是不是cpio archive的第一个文件 */
     cpio_get_entry(cpio, cpio_len, 0, &elf_filename, NULL);
     ret = strcmp(elf_filename, "kernel.elf");
     if (0 != ret) {
         printf("ERROR: Kernel image not first image in archive\n");
         return -1;
     }
+    /*CY 判断dtb是不是cpio archive的第二个文件 */
     cpio_get_entry(cpio, cpio_len, 1, &elf_filename, NULL);
     ret = strcmp(elf_filename, "kernel.dtb");
     if (0 != ret) {
@@ -534,14 +550,17 @@ int load_images(
             printf("ERROR: Kernel DTB not second image in archive\n");
             return -1;
         }
+        /*CY 如果没有dtb，那第二个文件开始就是user image */
         user_elf_offset = 1;
     }
-
+/*CY 这里计算了user image的总大小，然后计算next_phys_addr的位置（内存末尾） */
+/*CY 推测rootserver应该就是指是否含有至少一个user image，CONFIG_ELFLOADER_ROOTSERVERS_LAST是指把rootserver放到内存末尾 */
 #ifdef CONFIG_ELFLOADER_ROOTSERVERS_LAST
 
     /* work out the size of the user images - this corresponds to how much
      * memory load_elf uses */
     unsigned int total_user_image_size = 0;
+    /*CY 逐个读取kernel和dtb之后的user image */
     for (unsigned int i = 0; i < max_user_images; i++) {
         void const *user_elf = cpio_get_entry(cpio,
                                               cpio_len,
@@ -555,6 +574,7 @@ int load_images(
          * success and anything else is an error.
          */
         uint64_t min_vaddr, max_vaddr;
+        /*CY 获取当前user image的边界位置 */
         int ret = elf_getMemoryBounds(user_elf, 0, &min_vaddr, &max_vaddr);
         if (ret != 1) {
             printf("ERROR: Could not get image bounds\n");
@@ -572,6 +592,7 @@ int load_images(
 
 #endif /* CONFIG_ELFLOADER_ROOTSERVERS_LAST */
 
+/*CY 下面开始真正装载user image */
     *num_images = 0;
     for (unsigned int i = 0; i < max_user_images; i++) {
         /* Fetch info about the next ELF file in the archive. */
